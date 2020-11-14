@@ -69,3 +69,44 @@ func TestServerPicker(t *testing.T) {
 		t.Error("server: ", server.Destination())
 	}
 }
+
+func TestFirstServerPicker(t *testing.T) {
+	list := NewServerList()
+	list.AddServer(NewServerSpec(net.TCPDestination(net.LocalHostIP, net.Port(1)), AlwaysValid()))
+	list.AddServer(NewServerSpec(net.TCPDestination(net.LocalHostIP, net.Port(2)), BeforeTime(time.Now().Add(time.Second))))
+	list.AddServer(NewServerSpec(net.TCPDestination(net.LocalHostIP, net.Port(3)), BeforeTime(time.Now().Add(time.Second))))
+
+	picker := NewFirstServerPicker(list)
+	server := picker.PickServer()
+	if server.Destination().Port != 1 {
+		t.Error("server: ", server.Destination())
+	}
+	server = picker.PickServer()
+	if server.Destination().Port != 1 {
+		t.Error("server: ", server.Destination())
+	}
+	server = picker.PickServer()
+	if server.Destination().Port != 1 {
+		t.Error("server: ", server.Destination())
+	}
+	picker.UpdateStat(3000)
+	server = picker.PickServer()
+	if server.Destination().Port != 1 {
+		t.Error("server: ", server.Destination())
+	}
+
+	picker.UpdateStat(30000)
+	server = picker.PickServer()
+	if server.Destination().Port != 2 {
+		t.Error("server: ", server.Destination())
+	}
+
+	server = picker.PickServer()
+	if server.Destination().Port != 2 {
+		t.Error("server: ", server.Destination())
+	}
+	server = picker.PickServer()
+	if server.Destination().Port != 2 {
+		t.Error("server: ", server.Destination())
+	}
+}

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"sync"
+	"time"
 
 	"golang.org/x/net/http2"
 	"v2ray.com/core"
@@ -59,7 +60,7 @@ func NewClient(ctx context.Context, config *ClientConfig) (*Client, error) {
 
 	v := core.MustFromContext(ctx)
 	return &Client{
-		serverPicker:  protocol.NewRoundRobinServerPicker(serverList),
+		serverPicker:  protocol.NewFirstServerPicker(serverList),
 		policyManager: v.GetFeature(policy.ManagerType()).(policy.Manager),
 	}, nil
 }
@@ -88,6 +89,7 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 
 	buf.ReleaseMulti(mbuf)
 	defer bytespool.Free(firstPayload)
+	start := time.Now()
 
 	if err := retry.ExponentialBackoff(5, 100).On(func() error {
 		server := c.serverPicker.PickServer()
@@ -127,7 +129,11 @@ func (c *Client) Process(ctx context.Context, link *transport.Link, dialer inter
 		defer timer.SetTimeout(p.Timeouts.DownlinkOnly)
 		return buf.Copy(link.Reader, buf.NewWriter(conn), buf.UpdateActivity(timer))
 	}
+
 	responseFunc := func() error {
+		newError("!!!!!gap is ", time.Since(start)).AtWarning().WriteToLog()
+		c.serverPicker.UpdateStat(uint32(time.Since(start) / time.Millisecond))
+
 		defer timer.SetTimeout(p.Timeouts.UplinkOnly)
 		return buf.Copy(buf.NewReader(conn), link.Writer, buf.UpdateActivity(timer))
 	}

@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"sync"
+	"time"
 )
 
 type ServerList struct {
@@ -54,6 +55,7 @@ func (sl *ServerList) removeServer(idx uint32) {
 
 type ServerPicker interface {
 	PickServer() *ServerSpec
+	UpdateStat(uint32)
 }
 
 type RoundRobinServerPicker struct {
@@ -86,4 +88,53 @@ func (p *RoundRobinServerPicker) PickServer() *ServerSpec {
 	p.nextIndex = next
 
 	return server
+}
+func (p *RoundRobinServerPicker) UpdateStat(latency_ms uint32) {
+}
+
+// Use a haproxy style server picker by default use 0th server in serverlist
+type FirstServerPicker struct {
+	sync.Mutex
+	serverlist  *ServerList
+	latencyChan chan uint32
+	serverChan  chan *ServerSpec
+}
+
+func NewFirstServerPicker(serverlist *ServerList) *FirstServerPicker {
+	picker := FirstServerPicker{
+		serverlist:  serverlist,
+		latencyChan: make(chan uint32, 8),
+		serverChan:  make(chan *ServerSpec),
+	}
+	go func() {
+		var index uint32 = 0
+		for latency_ms := range picker.latencyChan {
+			if latency_ms == 0 { // reset to 0 signal
+				index = 0
+			} else if latency_ms > 5000 { // bad latency
+				index = (index + 1) % picker.serverlist.Size()
+				if index == 0 {
+					time.AfterFunc(5*time.Minute, func() {
+						picker.latencyChan <- 0
+					})
+				}
+			}
+		}
+		go func() {
+			for {
+				picker.serverChan <- picker.serverlist.GetServer(index)
+			}
+		}()
+	}()
+
+	return &picker
+}
+
+func (p *FirstServerPicker) UpdateStat(latency_ms uint32) {
+	p.latencyChan <- latency_ms
+}
+
+func (p *FirstServerPicker) PickServer() *ServerSpec {
+
+	return <-p.serverChan
 }
